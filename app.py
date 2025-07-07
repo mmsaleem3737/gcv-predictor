@@ -283,7 +283,250 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
     
-    # ... your tab2, tab3, tab4 code here ...
+    with tab2:
+        st.markdown("### 📊 Batch Processing")
+        st.markdown("Upload a CSV file with multiple coal samples for batch GCV prediction.")
+        
+        col1, col2 = st.columns([1, 1], gap="large")
+        
+        with col1:
+            st.markdown("#### 📤 Upload Data")
+            st.markdown("Upload a CSV file containing coal analysis data. Required columns:")
+            for feature in FEATURE_LIST:
+                feature_info = FEATURE_RANGES[feature]
+                st.markdown(f"- **{feature}**: {feature_info['description']} ({feature_info['min']}-{feature_info['max']}%)")
+            
+            uploaded_file = st.file_uploader(
+                "Choose CSV file",
+                type="csv",
+                help="Upload CSV with columns: " + ", ".join(FEATURE_LIST)
+            )
+            
+            st.markdown("#### 📋 Template Data")
+            st.markdown("Use this template to format your data:")
+            template_df = create_template_df()
+            st.dataframe(template_df, use_container_width=True)
+            
+            # Download template
+            template_csv = io.StringIO()
+            template_df.to_csv(template_csv, index=True)
+            template_data = template_csv.getvalue()
+            st.download_button(
+                label="📥 Download Template CSV",
+                data=template_data,
+                file_name="coal_gcv_template.csv",
+                mime="text/csv"
+            )
+        
+        with col2:
+            if uploaded_file is not None:
+                df = process_uploaded_file(uploaded_file)
+                if df is not None:
+                    st.markdown("#### 🔍 Data Preview")
+                    st.dataframe(df.head(10), use_container_width=True)
+                    
+                    if st.button("🚀 Process Batch", type="primary", use_container_width=True):
+                        progress_bar = st.progress(0)
+                        predictions = []
+                        
+                        for i, row in df.iterrows():
+                            sample_dict = row[FEATURE_LIST].to_dict()
+                            prediction = predict_gcv(model, sample_dict)
+                            if prediction is not None:
+                                predictions.append({
+                                    'sample_id': i,
+                                    'predicted_gcv': prediction,
+                                    'lower_bound': prediction - SIGMA,
+                                    'upper_bound': prediction + SIGMA,
+                                    'quality_class': 'High' if prediction > 6000 else 'Medium' if prediction > 5000 else 'Low'
+                                })
+                            progress_bar.progress((i + 1) / len(df))
+                        
+                        if predictions:
+                            results_df = pd.DataFrame(predictions)
+                            original_with_predictions = df.copy()
+                            original_with_predictions['predicted_gcv'] = results_df['predicted_gcv'].values
+                            original_with_predictions['quality_class'] = results_df['quality_class'].values
+                            original_with_predictions['lower_bound'] = results_df['lower_bound'].values
+                            original_with_predictions['upper_bound'] = results_df['upper_bound'].values
+                            
+                            st.markdown("#### 📊 Batch Results")
+                            st.dataframe(original_with_predictions, use_container_width=True)
+                            
+                            # Summary statistics
+                            st.markdown("#### 📈 Summary Statistics")
+                            col_stats1, col_stats2, col_stats3 = st.columns(3)
+                            with col_stats1:
+                                st.metric("Total Samples", len(results_df))
+                            with col_stats2:
+                                st.metric("Average GCV", f"{results_df['predicted_gcv'].mean():.1f} kcal/kg")
+                            with col_stats3:
+                                st.metric("GCV Range", f"{results_df['predicted_gcv'].min():.0f}-{results_df['predicted_gcv'].max():.0f}")
+                            
+                            # Quality distribution
+                            quality_counts = results_df['quality_class'].value_counts()
+                            st.markdown("#### 🏆 Quality Distribution")
+                            for quality, count in quality_counts.items():
+                                percentage = (count / len(results_df)) * 100
+                                st.write(f"**{quality} Quality**: {count} samples ({percentage:.1f}%)")
+                            
+                            # Download results
+                            results_csv = io.StringIO()
+                            original_with_predictions.to_csv(results_csv, index=False)
+                            results_data = results_csv.getvalue()
+                            st.download_button(
+                                label="📥 Download Batch Results",
+                                data=results_data,
+                                file_name=f"batch_gcv_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv"
+                            )
+            else:
+                st.markdown("""
+                <div style="text-align: center; padding: 3rem; color: #64748b;">
+                    <h3>📤 Upload CSV file to start batch processing</h3>
+                    <p>Upload a CSV file with coal analysis data to predict GCV for multiple samples</p>
+                </div>
+                """, unsafe_allow_html=True)
+    
+    with tab3:
+        st.markdown("### 📈 Model Analytics")
+        
+        col1, col2 = st.columns([1, 1], gap="large")
+        
+        with col1:
+            st.markdown("#### 🎯 Model Performance")
+            perf_col1, perf_col2 = st.columns(2)
+            with perf_col1:
+                st.metric("R² Score", f"{MODEL_INFO['test_r2']:.4f}")
+                st.metric("Training Samples", f"{MODEL_INFO['rows_trained']:,}")
+            with perf_col2:
+                st.metric("RMSE", f"{MODEL_INFO['test_rmse']:.1f} kcal/kg")
+                st.metric("Confidence Interval", f"±{SIGMA} kcal/kg")
+            
+            st.markdown("#### 🔧 Model Configuration")
+            st.markdown(f"**Algorithm**: {MODEL_INFO['algorithm']}")
+            st.markdown(f"**Features**: {len(MODEL_INFO['features'])} input variables")
+            st.markdown(f"**Target**: {MODEL_INFO['target'].upper()}")
+            st.markdown(f"**Created**: {MODEL_INFO['created'][:10]}")
+            
+            st.markdown("#### 🏷️ Feature Ranges")
+            for feature, info in FEATURE_RANGES.items():
+                st.markdown(f"**{feature.replace('_', ' ').title()}** {info['icon']}")
+                st.markdown(f"- Range: {info['min']}-{info['max']}%")
+                st.markdown(f"- Impact: {info['description']}")
+                st.markdown("---")
+        
+        with col2:
+            st.markdown("#### 📊 Global Feature Importance")
+            importance_fig = create_importance_plot()
+            if importance_fig is not None:
+                st.pyplot(importance_fig)
+            
+            st.markdown("#### 🎯 Feature Impact Details")
+            sorted_features = sorted(SHAP_IMPORTANCE.items(), key=lambda x: x[1], reverse=True)
+            for i, (feature, importance) in enumerate(sorted_features, 1):
+                feature_info = FEATURE_RANGES[feature]
+                st.markdown(f"""
+                **{i}. {feature.replace('_', ' ').title()}** {feature_info['icon']}
+                - SHAP Impact: {importance} kcal/kg
+                - Direction: {feature_info['direction']}
+                - {feature_info['description']}
+                """)
+        
+        st.markdown("#### 🔬 Technical Details")
+        tech_col1, tech_col2, tech_col3 = st.columns(3)
+        with tech_col1:
+            st.markdown("**Environment**")
+            st.markdown(f"- Python: {MODEL_INFO['python']}")
+            st.markdown(f"- Scikit-learn: {MODEL_INFO['sklearn']}")
+            st.markdown(f"- XGBoost: {MODEL_INFO['xgboost']}")
+        with tech_col2:
+            st.markdown("**Model Pipeline**")
+            st.markdown("- Data preprocessing")
+            st.markdown("- Feature scaling")
+            st.markdown("- XGBoost regression")
+        with tech_col3:
+            st.markdown("**Validation**")
+            st.markdown("- Cross-validation")
+            st.markdown("- Hold-out test set")
+            st.markdown("- SHAP analysis")
+    
+    with tab4:
+        st.markdown("### ℹ️ About This Application")
+        
+        about_col1, about_col2 = st.columns([1, 1], gap="large")
+        
+        with about_col1:
+            st.markdown("#### 🎯 Purpose")
+            st.markdown("""
+            This application predicts the Gross Calorific Value (GCV) of coal samples using advanced machine learning techniques. 
+            GCV is a critical parameter that determines the energy content and commercial value of coal.
+            """)
+            
+            st.markdown("#### 🔬 How It Works")
+            st.markdown("""
+            1. **Input Features**: The model uses 5 key coal properties (ash, moisture, volatile matter, fixed carbon)
+            2. **Machine Learning**: XGBoost algorithm trained on 30,000+ coal samples
+            3. **Prediction**: Provides GCV prediction with confidence intervals
+            4. **Explainability**: SHAP values show how each feature impacts the prediction
+            """)
+            
+            st.markdown("#### 📊 Key Features")
+            st.markdown("""
+            - **Single Prediction**: Predict GCV for individual coal samples
+            - **Batch Processing**: Upload CSV files for multiple predictions
+            - **Model Analytics**: Understand feature importance and model performance
+            - **Explainable AI**: SHAP analysis for prediction interpretability
+            - **Quality Classification**: Automatic coal quality assessment
+            """)
+        
+        with about_col2:
+            st.markdown("#### 🎓 Model Information")
+            st.markdown(f"""
+            - **Algorithm**: {MODEL_INFO['algorithm']}
+            - **Performance**: R² = {MODEL_INFO['test_r2']:.4f}, RMSE = {MODEL_INFO['test_rmse']:.1f} kcal/kg
+            - **Training Data**: {MODEL_INFO['rows_trained']:,} samples
+            - **Features**: {len(MODEL_INFO['features'])} input variables
+            - **Confidence**: ±{SIGMA} kcal/kg prediction interval
+            """)
+            
+            st.markdown("#### 🔍 Input Requirements")
+            st.markdown("All values should be on **Air Dry Basis (ADB)**:")
+            for feature, info in FEATURE_RANGES.items():
+                st.markdown(f"- **{feature.replace('_', ' ').title()}**: {info['min']}-{info['max']}% {info['icon']}")
+            
+            st.markdown("#### 🏆 Quality Classification")
+            st.markdown("""
+            - **High Quality**: > 6000 kcal/kg 🟢
+            - **Medium Quality**: 5000-6000 kcal/kg 🟡  
+            - **Low Quality**: < 5000 kcal/kg 🔴
+            """)
+            
+            st.markdown("#### 🛠️ Technical Stack")
+            st.markdown("""
+            - **Backend**: Python, XGBoost, Scikit-learn
+            - **Frontend**: Streamlit
+            - **Visualization**: Matplotlib, SHAP
+            - **Data Processing**: Pandas, NumPy
+            """)
+        
+        st.markdown("---")
+        st.markdown("#### 📝 Usage Guidelines")
+        st.markdown("""
+        1. **Data Quality**: Ensure input values are within specified ranges
+        2. **Units**: All percentages are on Air Dry Basis (ADB)
+        3. **Accuracy**: Model provides ±66 kcal/kg confidence interval
+        4. **Validation**: Always validate critical decisions with laboratory analysis
+        5. **Scope**: Model trained on diverse coal samples, best for similar coal types
+        """)
+        
+        st.markdown("#### ⚠️ Disclaimers")
+        st.markdown("""
+        - This model is for estimation purposes and should not replace laboratory analysis for critical decisions
+        - Predictions are based on statistical patterns in training data
+        - Model performance may vary for coal types not well-represented in training data
+        - Always validate results with certified laboratory testing when required
+        """)
 
 if __name__ == "__main__":
     main()
