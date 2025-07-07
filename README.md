@@ -36,15 +36,3 @@
 
 Full model card in `docs/MODEL_CARD.md`.
 
----
-
-## 🚀 Quick Start (Local)
-
-### 1. Clone + install
-
-```bash
-git clone https://github.com/your-org/gcv-app.git
-cd gcv-app
-python -m venv venv             # or conda create -n gcv python=3.10
-venv\Scripts\activate           # Linux/mac: source venv/bin/activate
-pip install -r requirements.txt
